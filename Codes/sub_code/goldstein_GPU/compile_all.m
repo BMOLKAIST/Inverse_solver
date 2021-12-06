@@ -1,5 +1,5 @@
 clc;
-cd('Z:\MSLee\_multiple_scattering_mshh_manuscript_v2\sub_code\goldstein_GPU');
+cd('/data01/Herve/code/_multiple_scattering_mshh/sub_code/goldstein_GPU');
 mexcuda -output create_sort_value_gpu create_sort_value_cuda.cu create_sort_value_mex.cpp;
 mex -output get_branches_goldstein get_branches_goldstein.cpp get_branches_goldstein_compute.cpp get_branches_goldstein_update.cpp;
 mex -output get_branches_goldstein_original get_branches_goldstein.cpp get_branches_goldstein_compute_original.cpp get_branches_goldstein_update.cpp;
