@@ -18,15 +18,12 @@ classdef BACKWARD_SOLVER_MULTI_MULTI_GPU < BACKWARD_SOLVER_MULTI
             %start the parallel pool
             curr_pool=gcp('nocreate');
             if length(curr_pool)>0
-                if curr_pool.NumWorkers<(h.num_worker+1)
-%                 if curr_pool.NumWorkers<(h.num_worker)
+                if curr_pool.NumWorkers<(h.num_worker+1);
                     delete(gcp('nocreate'));
                     parpool(h.num_worker+1);
-%                     parpool(h.num_worker);
                 end
             else
                 parpool(h.num_worker+1);
-%                 parpool(h.num_worker);
             end
             display(['Using ' num2str(h.num_worker) ' GPU']);
             h.parallel_return=cell(h.num_worker,1);
@@ -37,7 +34,7 @@ classdef BACKWARD_SOLVER_MULTI_MULTI_GPU < BACKWARD_SOLVER_MULTI
                 h.parallel_return{ii}=parfeval(@backward_executer,1,h.queue_out{ii},h.parameters);
             end
             for ii=1:h.num_worker
-                [h.queue_in{ii},success]=poll(h.queue_out{ii},9999);
+                [h.queue_in{ii},success]=poll(h.queue_out{ii},10);
                 send(h.queue_in{ii},ii);
                 if ~success
                     error('At least one thread did not respond');
@@ -51,7 +48,7 @@ classdef BACKWARD_SOLVER_MULTI_MULTI_GPU < BACKWARD_SOLVER_MULTI
             end
             %}
             for ii=1:h.num_worker
-                [success2,success]=poll(h.queue_out{ii},9999);
+                [success2,success]=poll(h.queue_out{ii},30);
                 if ~success || ~success2
                     error('At least one thread did not respond');
                 else
@@ -102,24 +99,18 @@ classdef BACKWARD_SOLVER_MULTI_MULTI_GPU < BACKWARD_SOLVER_MULTI
             for ii=1:h.num_worker
                nd=round(ii.*num_fields./h.num_worker);
                if nd>=st && st<=num_fields
-                   [packet,success]=poll(h.queue_out{ii},9999);
+                   [packet,success]=poll(h.queue_out{ii},99999);
+                   
                    sub_f_num=nd-st+1;
                    %size(packet{1})
                    %size(packet{2})
                    %sub_f_num
-%                    try 
                    gradient_RI=gradient_RI+packet{1}*sub_f_num;
                    err=err+packet{2}*sub_f_num;
-%                    catch
-%                        for jj=1:h.num_worker
-%                         fetchOutputs(h.parallel_return{jj})
-%                        end
-%                    end
                    
                    st=nd+1;
                end
             end
-
             gradient_RI=gradient_RI./num_fields;
             err=err./num_fields;
         end
@@ -131,7 +122,7 @@ function res=backward_executer(data_queue_out,params)
 request_queue=parallel.pool.PollableDataQueue;
 send(data_queue_out,request_queue);
 %select the gpu
-[gpu_num,success]=poll(request_queue,9999);
+[gpu_num,success]=poll(request_queue,10);
 if ~success
     error('Could not find a gpu');
 end
@@ -142,7 +133,7 @@ send(data_queue_out,true);
 %performing requests
 running=true;
 while running
-    [request,success]=poll(request_queue,9999);
+    [request,success]=poll(request_queue,10);
     switch request{1}
     case 0
         running=false;

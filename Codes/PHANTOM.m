@@ -14,7 +14,6 @@ classdef PHANTOM
             d1=single(reshape(single(1:outer_size(1)),[],1,1)-(floor(outer_size(1)/2)+1));
             d2=single(reshape(single(1:outer_size(2)),1,[],1)-(floor(outer_size(2)/2)+1));
             d3=single(reshape(single(1:outer_size(3)),1,1,[])-(floor(outer_size(3)/2)+1));
-            
             tot_sample=1;
             if params.antialiasing
                 tot_sample=8;
@@ -40,7 +39,6 @@ classdef PHANTOM
                         case 8
                             sample_shift=[-1 -1 -1];
                         otherwise
-                            
                     end
                     sample_shift=(1/4).*sample_shift;
                 end
@@ -48,7 +46,6 @@ classdef PHANTOM
                 d2_norm= 2.*(d2+sample_shift(2))./inner_size(2);
                 d3_norm= 2.*(d3+sample_shift(3))./inner_size(3);
                 r_norm=sqrt(d1_norm.^2+d2_norm.^2+d3_norm.^2);
-                
                 switch params.name
                     case 'blank'
                         %nothing to do return blacnk
@@ -61,8 +58,17 @@ classdef PHANTOM
                         phantom(phantom>0.5) = 1;
                     case 'trimer'
                         %make a bead
-                        phantom=phantom+circshift(single(r_norm<1), round(inner_size(2)/2*[0 2/sqrt(3) 0]))+...
-                            circshift(single(r_norm<1), round(inner_size(2)/2*[1 -1/sqrt(3) 0])) + circshift(single(r_norm<1), round(inner_size(2)/2*[-1 -1/sqrt(3) 0]));
+                        radius = inner_size(2)/2 / sin(pi/3);
+                        for j1 = 1:5
+                            phantom = phantom + circshift(single(r_norm<1), round(radius*[cos(2*pi/3*(j1-1)) sin(2*pi/3*(j1-1)) 0]));
+                        end
+                        phantom(phantom>0.5) = 1;
+                    case 'pentamer'
+                        %make a bead
+                        radius = inner_size(2)/2 / sin(pi/5);
+                        for j1 = 1:5
+                            phantom = phantom + circshift(single(r_norm<1), round(radius*[cos(2*pi/5*(j1-1)) sin(2*pi/5*(j1-1)) 0]));
+                        end
                         phantom(phantom>0.5) = 1;
                     case 'RBC'
                         %make a bead
@@ -76,7 +82,11 @@ classdef PHANTOM
                         phantom=phantom+ imclearborder(single(...
                             (d3_norm.*sz_rbc).^2 <= rbc_funct(Rho.*sz_rbc)...
                             ));
-                        
+                    case 'SheppLogan'
+                        phantom0 = phantom3d;
+                        phantom(floor(end/2)+1-floor(size(phantom0,1)/2):floor(end/2)+size(phantom0,1)-floor(size(phantom0,1)/2),...
+                            floor(end/2)+1-floor(size(phantom0,2)/2):floor(end/2)+size(phantom0,2)-floor(size(phantom0,2)/2),...
+                            floor(end/2)+1-floor(size(phantom0,3)/2):floor(end/2)+size(phantom0,3)-floor(size(phantom0,3)/2)) = phantom0;
                     otherwise
                         error('Unknown phantom name')
                 end
@@ -89,9 +99,8 @@ classdef PHANTOM
             if norm(params.rotation_angles)>0
                 phantom_dummy = phantom * 0;
                 phantom = imrotate3(phantom, params.rotation_angles(1), [0 0 1], 'crop');
-                phantom = imrotate3(phantom, params.rotation_angles(2), [0 1 0], 'crop');
+                phantom = imrotate3(phantom, params.rotation_angles(2), [1 0 0], 'crop');
                 phantom = imrotate3(phantom, params.rotation_angles(3), [0 0 1], 'crop');
-
                 phantom_dummy(floor(end/2)+1-floor(size(phantom,1)/2):floor(end/2) + size(phantom,1) - floor(size(phantom,1)/2),...
                     floor(end/2)+1-floor(size(phantom,2)/2):floor(end/2) + size(phantom,2) - floor(size(phantom,2)/2),...
                     floor(end/2)+1-floor(size(phantom,3)/2):floor(end/2) + size(phantom,3) - floor(size(phantom,3)/2)) = phantom;

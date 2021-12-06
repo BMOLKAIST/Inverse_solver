@@ -1,12 +1,19 @@
-function out_mat=TV_FISTA_inner(in_mat,lambda, non_neg,dirichlet_boundary,inner_itt,use_gpu)
+function out_mat=TV_FISTA_inner(in_mat,lambda, non_neg,dirichlet_boundary,inner_itt,use_gpu,use_cuda)
 % TV_FISTA_inner_v2(u_n-(1/alpha)*gradient_RI,h.parameters.tv_param/alpha,...
 %                     params.nmin, params.nmax, params.kappamax, h.parameters.use_non_negativity,dirichlet_boundary,inner_itt,use_gpu);
+if ~exist('use_cuda','var')
+    use_cuda=false;
+end
 if use_gpu
     in_mat=single(gpuArray(in_mat));
 else
     in_mat=single(in_mat);
 end
-    
+if use_gpu && use_cuda
+    out_mat=fista_TV_inner_gpu(in_mat,gather(single(lambda)),gather(logical(non_neg)),gather(logical(dirichlet_boundary)),gather(uint32(inner_itt)));
+    warning('shifted coordinate and shared memory ? split data ? use double in computations ?');
+    warning('partitionning and overlapping data transfer ?');
+else    
     dim_num=length(size(in_mat));
     
     if dim_num>=3
@@ -30,8 +37,7 @@ end
     for mm=1:inner_itt
         P_n=P_np;
         t_n=t_np;
-        
-        P_np=TV_L_trans(project_non_neg(in_mat-lambda*TV_L(R),non_neg,dirichlet_boundary));
+        P_np=(TV_L_trans(project_non_neg((in_mat)-lambda*TV_L(R),non_neg,dirichlet_boundary)));
         for kk=1:dim_num
             P_np{kk}=R{kk}+1/(dividend*lambda)*P_np{kk};
         end
@@ -45,7 +51,8 @@ end
     end
     
     out_mat=project_non_neg(in_mat-lambda*TV_L(P_np),non_neg,dirichlet_boundary);
-    
+ 
+end
 end
 
 %% helping functions

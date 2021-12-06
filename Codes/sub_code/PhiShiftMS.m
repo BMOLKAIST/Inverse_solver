@@ -160,7 +160,7 @@ function [goodp2,coefficients]=D2_LSAms(varargin)
 end
 function p2mask=omit_outliers(p2mask)
     list=p2mask(:);list(list==0)=[];
-    p25=prctile(double(list),25);p75=prctile(double(list),75);
+    p25=prctile(list,25);p75=prctile(list,75);
     cmin=p25-1.5*(p75-p25);cmax=p75+1.5*(p75-p25);
     p2mask(p2mask<cmin)=0;
     p2mask(p2mask>cmax)=0;
