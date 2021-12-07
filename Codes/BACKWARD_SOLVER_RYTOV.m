@@ -1,8 +1,6 @@
 classdef BACKWARD_SOLVER_RYTOV < BACKWARD_SOLVER
     properties (SetAccess = protected, Hidden = true)
         utility;
-        overlap_3D;
-        overlap_field;
     end
     methods(Static)
         function params=get_default_parameters(init_params)
@@ -21,7 +19,7 @@ classdef BACKWARD_SOLVER_RYTOV < BACKWARD_SOLVER
         function h=BACKWARD_SOLVER_RYTOV(params)
             h@BACKWARD_SOLVER(params);
         end
-        function [RI]=solve(h,input_field,output_field)
+        function [RI, ORytov]=solve(h,input_field,output_field)
             warning('off','all');
             h.utility=DERIVE_OPTICAL_TOOL(h.parameters);
             warning('on','all');
@@ -50,7 +48,7 @@ classdef BACKWARD_SOLVER_RYTOV < BACKWARD_SOLVER
             retPhase=angle(sp./bg);
             retPhase=gather(unwrapp2_gpu(gpuArray(single(retPhase))));
 %             for jj = 1:size(retPhase,3)
-%                 retPhase(:,:,jj)=single(gather(unwrap2(gather(double(retPhase(:,:,jj))))));
+%                 imagesc(retPhase(:,:,jj)),axis image, drawnow
 %             end
             retAmplitude=abs(sp./bg);
             
@@ -78,8 +76,6 @@ classdef BACKWARD_SOLVER_RYTOV < BACKWARD_SOLVER
             ORytov=gpuArray(single(zeros(h.parameters.size(1),h.parameters.size(2),h.parameters.size(3),'single')));
             Count=gpuArray(single(zeros(h.parameters.size(1),h.parameters.size(2),h.parameters.size(3),'single')));
             
-            h.overlap_field=retAmplitude.*0;
-            k_z_for_overlap=retAmplitude.*0-1;
             for kk= 1 :thetaSize
                 FRytov=squeeze(log(retAmplitude(:,:,kk))+1i*retPhase(:,:,kk));
                 UsRytov=fftshift(fft2(ifftshift(FRytov))).*(h.parameters.resolution(1).*h.parameters.resolution(2)); % unit: (um^2)
@@ -102,24 +98,12 @@ classdef BACKWARD_SOLVER_RYTOV < BACKWARD_SOLVER
                 Kx=round(Kx/h.utility.fourier_space.res{2}+floor(h.parameters.size(2)/2)+1); 
                 Ky=round(Ky/h.utility.fourier_space.res{1}+floor(h.parameters.size(1)/2)+1); 
                 Kz=round(Kz/h.utility.fourier_space.res{3}+floor(h.parameters.size(3)/2)+1);
-                Kzp=(Kz-1)*h.parameters.size(1).*h.parameters.size(2)+(Kx-1)*h.parameters.size(1)+Ky;
-                Kxyp=(Kx-1)*h.parameters.size(1)+Ky;
-                k_z_for_overlap_slice=k_z_for_overlap(:,:,kk);
-                k_z_for_overlap_slice(Kxyp)=Kzp;
-                k_z_for_overlap(:,:,kk)=k_z_for_overlap_slice;
+                Kzp=sub2ind(size(Count),Ky,Kx,Kz);
                 temp=ORytov(Kzp);
                 ORytov(Kzp)=temp+Uprime;
-                Count(Kzp)=Count(Kzp)+1;
+                Count(Kzp)=Count(Kzp)+(Uprime~=0);
                 %disp([num2str(kk),' / ',num2str(thetaSize)])
             end
-            h.overlap_3D=gather(Count);
-            k_z_for_overlap=gather(k_z_for_overlap);
-            h.overlap_field(k_z_for_overlap>0)=h.overlap_3D(k_z_for_overlap(k_z_for_overlap>0));
-            for kk= 1 :thetaSize
-                h.overlap_field(:,:,kk)=(circshift(h.overlap_field(:,:,kk),[round(k0_y(kk)/h.utility.fourier_space.res{1}) round(k0_x(kk)/h.utility.fourier_space.res{2})]));
-                
-            end
-            
             ORytov(Count>0)=ORytov(Count>0)./Count(Count>0)/(prod(h.parameters.resolution(:),'all')); % should be (um^-2)*(px*py*pz), so (px*py*pz/um^3) should be multiplied.
             Reconimg=gather(fftshift(ifftn(ifftshift(ORytov))));
             Reconimg = potential2RI(Reconimg*4*pi,h.parameters.wavelength,h.parameters.RI_bg);
@@ -140,6 +124,9 @@ classdef BACKWARD_SOLVER_RYTOV < BACKWARD_SOLVER
                 Reconimg = gather(Reconimg);
             end
             RI=Reconimg;
+        end
+        function [field_trans_f] = refocus(h, field_trans, z) % z is [um]
+            field_trans_f = fftshift(ifft2(ifftshift(fftshift(fft2(ifftshift(field_trans))) .* exp(z.*h.utility.refocusing_kernel))));
         end
     end
 end

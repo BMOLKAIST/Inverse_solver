@@ -1,23 +1,24 @@
 clc, clear;
 cd0 = matlab.desktop.editor.getActiveFilename;
-dash = cd0(strfind(cd0,'EXPERIMENT_BEAD.m')-1);
+
 cd0 = cd0(1:strfind(cd0,'EXPERIMENT_BEAD.m')-2);
 addpath(genpath(cd0));
+used_gpu_device=1;
+gpu_device=gpuDevice(used_gpu_device);
 %% set the experimental parameters
-cddata = [cd0 dash 'Data'];
-bg_file = [cddata dash 'SiO2_1_bg.tif'];
-sp_file =  [cddata dash 'SiO2_1_sp.tif'];
+cddata = fullfile(cd0, 'Data');
+bg_file = fullfile(cddata, 'SiO2_1_bg.tif');
+sp_file = fullfile(cddata, 'SiO2_1_sp.tif');
 
 cd(cddata)
-odt = load('SIM_spec.mat').odt;
 
 %1 optical parameters
 MULTI_GPU=false;
 
 params=BASIC_OPTICAL_PARAMETER();
 params.NA=1.16;
-params.RI_bg=odt.n_m;
-params.wavelength=odt.lambda;
+params.RI_bg=1.3355;
+params.wavelength=0.532;
 params.resolution=[1 1 1]*params.wavelength/4/params.NA;
 params.vector_simulation=false;true;
 params.size=[0 0 71]; 
@@ -25,7 +26,7 @@ params.use_GPU = true;
 
 %2 illumination parameters
 field_retrieval_params=FIELD_EXPERIMENTAL_RETRIEVAL.get_default_parameters(params);
-field_retrieval_params.resolution_image=[1 1]*(odt.pix/odt.mag);
+field_retrieval_params.resolution_image=[1 1]*(5.5/100);
 field_retrieval_params.conjugate_field=true;
 field_retrieval_params.use_abbe_correction=true;
 
@@ -42,7 +43,8 @@ figure;orthosliceViewer(squeeze(angle(field_trans(:,:,:)./input_field(:,:,:))));
 
 %% Set forward parameters
 %4 forward solver parameters
-forward_params=FORWARD_SOLVER_CONVERGENT_BORN.get_default_parameters(params);
+% forward_params=FORWARD_SOLVER_CONVERGENT_BORN.get_default_parameters(params);
+forward_params=FORWARD_SOLVER_CONVERGENT_BORN_CUDA.get_default_parameters(params);
 forward_params.use_GPU=true;
 %5 multiple scattering solver
 if ~MULTI_GPU
@@ -52,13 +54,15 @@ else
 end
 
 
-forward_params_backward=FORWARD_SOLVER_CONVERGENT_BORN.get_default_parameters(forward_params);
+% forward_params_backward=FORWARD_SOLVER_CONVERGENT_BORN.get_default_parameters(forward_params);
+forward_params_backward=FORWARD_SOLVER_CONVERGENT_BORN_CUDA.get_default_parameters(forward_params);
 forward_params_backward.return_transmission=true;
 forward_params_backward.return_reflection=true;
 forward_params_backward.return_3D=true;
+forward_params_backward.used_gpu = 0;
 forward_params_backward.boundary_thickness=[2 2 4]; % if xy is nonzero, acyclic convolution is applied.
-%forward_solver_backward=FORWARD_SOLVER_CONVERGENT_BORN(forward_params_backward);
-backward_params.forward_solver=@(x) FORWARD_SOLVER_CONVERGENT_BORN(x);%forward_solver_backward;
+% backward_params.forward_solver=@(x) FORWARD_SOLVER_CONVERGENT_BORN(x);%forward_solver_backward;
+backward_params.forward_solver=@(x) FORWARD_SOLVER_CONVERGENT_BORN_CUDA(x);%forward_solver_backward;
 backward_params.forward_solver_parameters=forward_params_backward;
 
 
@@ -86,6 +90,7 @@ Error_ours = inf;
 for j1 = 1:length(tv_param_list)
     backward_params.tv_param = tv_param_list(j1);
     backward_params.num_scan_per_iteration = 0;
+%     backward_params.num_scan_per_iteration = 8; % stochastic gradient descent
     if ~MULTI_GPU
         backward_solver=BACKWARD_SOLVER_MULTI(backward_params);
     else

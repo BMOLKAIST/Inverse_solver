@@ -8,7 +8,7 @@ classdef FORWARD_SOLVER_CONVERGENT_BORN_CUDA < FORWARD_SOLVER_CONVERGENT_BORN
             params=get_default_parameters@FORWARD_SOLVER_CONVERGENT_BORN();
             %specific parameters
             params.simultanous_2D_fft=10;%the number of 2D fft to do at one time (to save memory do small batch)
-            params.used_gpu=[];
+            params.used_gpu=0;
             if nargin==1
                 params=update_struct(params,init_params);
             end

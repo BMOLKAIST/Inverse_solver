@@ -32,7 +32,6 @@ end
     
     %start the itterations
     for mm=1:inner_itt
-        mm
         P_n=P_np;
         t_n=t_np;
         

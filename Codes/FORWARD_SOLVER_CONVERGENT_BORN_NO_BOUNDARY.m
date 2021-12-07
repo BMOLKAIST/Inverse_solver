@@ -1,12 +1,9 @@
-classdef FORWARD_SOLVER_CONVERGENT_BORN < FORWARD_SOLVER
+classdef FORWARD_SOLVER_CONVERGENT_BORN_NO_BOUNDARY < FORWARD_SOLVER
     properties %(SetAccess = protected, Hidden = true)
         utility_border;
         Bornmax;
         boundary_thickness_pixel;
         ROI;
-        
-        cyclic_boundary_xy;
-        
         
         Greenp;
         rads;
@@ -46,10 +43,9 @@ classdef FORWARD_SOLVER_CONVERGENT_BORN < FORWARD_SOLVER
         end
     end
     methods
-        function h=FORWARD_SOLVER_CONVERGENT_BORN(params)
+        function h=FORWARD_SOLVER_CONVERGENT_BORN_NO_BOUNDARY(params)
             
             % make the refocusing to volume field(other variable depend on the max RI and as such are created later).
-            
             h@FORWARD_SOLVER(params);
             if h.parameters.RI_xy_size(1)==0
                 h.parameters.RI_xy_size(1)=h.parameters.size(1);
@@ -59,102 +55,47 @@ classdef FORWARD_SOLVER_CONVERGENT_BORN < FORWARD_SOLVER
             end
             h.expected_RI_size=[h.parameters.RI_xy_size(1) h.parameters.RI_xy_size(2) h.parameters.size(3)];
             
+            h.refocusing_util=exp(h.utility.refocusing_kernel.*h.utility.image_space.coor{3});
+            %h.refocusing_util=truncated_z_refocusing(h.parameters);h.refocusing_util=fftshift(ifft(ifftshift(h.refocusing_util),size(h.refocusing_util,3),3));
+            h.refocusing_util=gather(h.refocusing_util);
+            %figure;orthosliceViewer(squeeze(abs(h.refocusing_util)));
+            %figure;orthosliceViewer(squeeze(angle(h.refocusing_util)));error('asd')
             %make the cropped green function (for forward and backward field)
-            h.cyclic_boundary_xy=( h.parameters.boundary_thickness(1)==0 && h.parameters.boundary_thickness(2)==0 && h.expected_RI_size(1)==h.parameters.size(1) && h.expected_RI_size(2)==h.parameters.size(2));
-            if h.cyclic_boundary_xy
-                h.refocusing_util=exp(h.utility.refocusing_kernel.*h.utility.image_space.coor{3});
-                h.refocusing_util=gather(h.refocusing_util);
-                free_space_green=h.refocusing_util./(1i*4*pi);
-                free_space_green=free_space_green.*h.utility.NA_circle./(h.utility.k3+~h.utility.NA_circle);
-                free_space_green=free_space_green./(h.utility.image_space.res{1}.*h.utility.image_space.res{2});
-                free_space_green=fftshift(ifft2(ifftshift(free_space_green)));
-            else
-                params_truncated_green=h.parameters;
-                params_truncated_green.size=h.parameters.size(:)...
-                    +[h.expected_RI_size(1) h.expected_RI_size(2) 0]'...
-                    +[h.parameters.RI_center(1) h.parameters.RI_center(2) 0]';
-                
-                warning('off','all');
-                h.refocusing_util=(truncated_green_plus(params_truncated_green,true));
-                h.refocusing_util=gather(h.refocusing_util);
-                h.refocusing_util=h.refocusing_util(...
-                    1-min(0,h.parameters.RI_center(1)):end-max(0,h.parameters.RI_center(1)),...
-                    1-min(0,h.parameters.RI_center(2)):end-max(0,h.parameters.RI_center(2)),:);
-                h.refocusing_util=circshift(h.refocusing_util,[-h.parameters.RI_center(1) -h.parameters.RI_center(2) 0]);
-                h.refocusing_util=fftshift(ifftn(ifftshift(h.refocusing_util)));
-                h.refocusing_util=fftshift(fft2(ifftshift(h.refocusing_util)));
-                h.refocusing_util=h.refocusing_util./size(h.refocusing_util,3); 
-                
-                %figure;orthosliceViewer(abs(h.refocusing_util));
-                warning('off','all');
-                free_space_green=(truncated_green_plus(params_truncated_green));
-                %free_space_green=(truncated_green_plus_v1(params_truncated_green));
-                warning('on','all');
-                
-                free_space_green=free_space_green(...
-                    1-min(0,h.parameters.RI_center(1)):end-max(0,h.parameters.RI_center(1)),...
-                    1-min(0,h.parameters.RI_center(2)):end-max(0,h.parameters.RI_center(2)),:);
-                free_space_green=circshift(free_space_green,[-h.parameters.RI_center(1) -h.parameters.RI_center(2) 0]);
-                free_space_green=fftshift(ifftn(ifftshift(free_space_green)));
-            end
+            params_truncated_green=h.parameters;
+            params_truncated_green.size=h.parameters.size(:)...
+                +[h.expected_RI_size(1) h.expected_RI_size(2) 0]'...
+                +[h.parameters.RI_center(1) h.parameters.RI_center(2) 0]';
+            warning('off','all');
+            free_space_green=(truncated_green_plus(params_truncated_green));
+            %free_space_green=(truncated_green_plus_v1(params_truncated_green));
+            warning('on','all');
+            free_space_green=free_space_green(...
+                1-min(0,h.parameters.RI_center(1)):end-max(0,h.parameters.RI_center(1)),...
+                1-min(0,h.parameters.RI_center(2)):end-max(0,h.parameters.RI_center(2)),:);
+            free_space_green=circshift(free_space_green,[-h.parameters.RI_center(1) -h.parameters.RI_center(2) 0]);
+            free_space_green=fftshift(ifftn(ifftshift(free_space_green)));
             h.kernel_trans=fftshift(fft2(ifftshift(conj(free_space_green))));
             h.kernel_ref=  fftshift(fft2(ifftshift((free_space_green))));
             
             h.kernel_ref=gather(h.kernel_ref);
             h.kernel_trans=gather(h.kernel_trans);
-            
-            warning('choose a higher size boundary to a size which fft is fast ??');
-            warning('allow to chose a threshold for remaining energy');
-            warning('min boundary size at low RI ??');
-            % Set boundary size & absorptivity
-            %display('HELLO');
-            %h.parameters.boundary_thickness
-            if length(h.parameters.boundary_thickness) == 1
-                error('Boundary in only one direction is not precise; enter "boundary_thickness" as an array of size 3 use size 0 for ciclic boundary');
-            elseif length(h.parameters.boundary_thickness) == 3
-                h.boundary_thickness_pixel = round((h.parameters.boundary_thickness*h.parameters.wavelength/h.parameters.RI_bg)./(h.parameters.resolution.*2));
-            else
-                error('h.boundary_thickness_pixel vector dimension should be 1 or 3.')
-            end
         end
         function matt=padd_RI2conv(h,matt)
             sz=size(matt);
-            if ~h.cyclic_boundary_xy
-                size_conv=h.parameters.size(1:2)'...
-                    +[h.expected_RI_size(1) h.expected_RI_size(2)]';
-                
-                add_start=-((floor(sz(1:2)'/2))-(floor(size_conv(:)/2)))...
-                    +[h.parameters.RI_center(1) h.parameters.RI_center(2)]';;
-                add_end=size_conv(:)-sz(1:2)'-add_start(:);
-                
-                matt=padarray(matt,add_start,0,'pre');
-                matt=padarray(matt,add_end,0,'post');
-            end
-        end
-        function matt=padd_field2conv(h,matt)
-            sz=size(matt);
-            if ~h.cyclic_boundary_xy
-                size_conv=h.parameters.size(1:2)'...
-                    +[h.expected_RI_size(1) h.expected_RI_size(2)]';
-                
-                add_start=-((floor(sz(1:2)'/2))-(floor(size_conv(:)/2)));
-                add_end=size_conv(:)-sz(1:2)'-add_start(:);
-                
-                matt=padarray(matt,add_start,0,'pre');
-                matt=padarray(matt,add_end,0,'post');
-            end
+            size_conv=h.parameters.size(1:2)'...
+                +[h.expected_RI_size(1) h.expected_RI_size(2)]';
+            
+            add_start=-((floor(sz(1:2)'/2))-(floor(size_conv(:)/2)));
+            add_end=size_conv(:)-sz(1:2)'-add_start(:);
+            
+            matt=padarray(matt,add_start,0,'pre');
+            matt=padarray(matt,add_end,0,'post');
         end
         function matt=crop_conv2field(h,matt)
             sz=size(matt);
-            if ~h.cyclic_boundary_xy
-                ROI_start=(floor(sz(1:2)'/2)+1)-(floor(h.parameters.size(1:2)'/2));
-                ROI_end=ROI_start+h.parameters.size(1:2)'-1;
-                matt=matt(ROI_start(1):ROI_end(1),ROI_start(2):ROI_end(2),:,:);
-            end
-        end
-        function matt=crop_conv2RI(h,matt)
-            matt=h.crop_conv2field(matt);
-            matt=h.crop_field2RI(matt);
+            ROI_start=(floor(sz(1:2)'/2)+1)-(floor(h.parameters.size(1:2)'/2));
+            ROI_end=ROI_start+h.parameters.size(1:2)'-1;
+            matt=matt(ROI_start(1):ROI_end(1),ROI_start(2):ROI_end(2),:,:);
         end
         function matt=crop_field2RI(h,matt)
             sz=size(matt);
@@ -194,7 +135,17 @@ classdef FORWARD_SOLVER_CONVERGENT_BORN < FORWARD_SOLVER
             
         end
         function ROI = create_boundary_RI(h)
-            
+            warning('choose a higher size boundary to a size which fft is fast ??');
+            warning('allow to chose a threshold for remaining energy');
+            warning('min boundary size at low RI ??');
+            % Set boundary size & absorptivity
+            if length(h.parameters.boundary_thickness) == 1
+                error('Boundary in only one direction is not precise; enter "boundary_thickness" as an array of size 3 use size 0 for ciclic boundary');
+            elseif length(h.parameters.boundary_thickness) == 3
+                h.boundary_thickness_pixel = round((h.parameters.boundary_thickness*h.parameters.wavelength/h.parameters.RI_bg)./(h.parameters.resolution.*2));
+            else
+                error('h.boundary_thickness_pixel vector dimension should be 1 or 3.')
+            end
             
             % Pad boundary
             if (h.parameters.use_GPU)
@@ -222,7 +173,6 @@ classdef FORWARD_SOLVER_CONVERGENT_BORN < FORWARD_SOLVER
                 val0=1-val0;
                 val0(val0>h.parameters.boundary_sharpness)=h.parameters.boundary_sharpness;
                 val0=val0./h.parameters.boundary_sharpness;
-                %figure; plot(val0); error('yo')
                 if h.boundary_thickness_pixel(j1)==0
                     val0(:)=0;
                 end
@@ -262,7 +212,7 @@ classdef FORWARD_SOLVER_CONVERGENT_BORN < FORWARD_SOLVER
             end
             
             shifted_coordinate=cell(3,1);
-            if h.parameters.acyclic && h.cyclic_boundary_xy
+            if h.parameters.acyclic && h.boundary_thickness_pixel(1)==0 && h.boundary_thickness_pixel(2)==0
                 %shift only in z h.parameters.acyclic
                 shifted_coordinate{1}=h.utility_border.fourier_space.coor{1};
                 shifted_coordinate{2}=h.utility_border.fourier_space.coor{2};
@@ -279,7 +229,6 @@ classdef FORWARD_SOLVER_CONVERGENT_BORN < FORWARD_SOLVER
                 shifted_coordinate{3}=h.utility_border.fourier_space.coor{3};
             end
             
-                
             h.rads=...
                 (shifted_coordinate{1}./h.utility_border.k0_nm).*reshape([1 0 0],1,1,1,[])+...
                 (shifted_coordinate{2}./h.utility_border.k0_nm).*reshape([0 1 0],1,1,1,[])+...
@@ -293,7 +242,7 @@ classdef FORWARD_SOLVER_CONVERGENT_BORN < FORWARD_SOLVER
             h.Bornmax = 0;
             
             if h.parameters.iterations_number==0
-                warning('set iterations_number to either a positive or negative value');
+                error('set iterations_number to either a positive or negative value');
             elseif h.parameters.iterations_number<=0
                 h.Bornmax=Bornmax_opt*abs(h.parameters.iterations_number);
             else
@@ -340,6 +289,7 @@ classdef FORWARD_SOLVER_CONVERGENT_BORN < FORWARD_SOLVER
             else
                 h.phase_ramp=1;
             end
+            
             if h.parameters.use_GPU
                 
                 h.rads = gpuArray(single(h.rads));
@@ -407,11 +357,8 @@ classdef FORWARD_SOLVER_CONVERGENT_BORN < FORWARD_SOLVER
                 end
                 if h.parameters.return_transmission || h.parameters.return_reflection
                     potential=RI2potential(h.RI(h.ROI(1):h.ROI(2), h.ROI(3):h.ROI(4), h.ROI(5):h.ROI(6),:,:),h.parameters.wavelength,h.parameters.RI_bg);
-                    emitter_3D=Field.*potential.*h.utility_border.dV;
-
-                    if ~h.cyclic_boundary_xy
-                    emitter_3D=h.padd_RI2conv(emitter_3D);
-                    end
+                    
+                    emitter_3D=h.padd_RI2conv(Field.*potential.*h.utility_border.dV);
                     emitter_3D=fftshift(fft2(ifftshift(emitter_3D)));
                 end
                 if h.parameters.return_transmission
@@ -446,6 +393,7 @@ classdef FORWARD_SOLVER_CONVERGENT_BORN < FORWARD_SOLVER
                     [field_ref] = h.transform_field_2D_reflection(field_ref);
                     field_ref=fftshift(ifft2(ifftshift(field_ref)));
                     fields_ref(:,:,:,field_num)=gather(squeeze(field_ref));
+                    
                     h.kernel_ref=gather(h.kernel_ref);
                 end
             end
@@ -479,14 +427,10 @@ classdef FORWARD_SOLVER_CONVERGENT_BORN < FORWARD_SOLVER
                 Field_n = zeros(size_field,'single');
             end
             
-            source = fftshift(ifft2(ifftshift(source)));
-            source = h.padd_field2conv(source);
-            source = fftshift(fft2(ifftshift(source)));
-            
-            source = ((reshape(source, [size(source,1),size(source,2),1,size(source,3)])).*h.refocusing_util);
+            source = (reshape(source, [size(source,1),size(source,2),1,size(source,3)]).*h.refocusing_util);
             h.refocusing_util=gather(h.refocusing_util);
             source = fftshift(ifft2(ifftshift(source)));
-            source = h.crop_conv2RI(source);
+            source = h.crop_field2RI(source);
             
             incident_field = source;
             if size(h.RI,4)==1

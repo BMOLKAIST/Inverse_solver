@@ -40,6 +40,7 @@ classdef FORWARD_SOLVER_CONVERGENT_BORN < FORWARD_SOLVER
             params.acyclic = true;
             params.RI_xy_size=[0 0];%if set to 0 the field is the same size as the simulation
             params.RI_center=[0 0];
+            params.force_remove_emitter_3D = false;
             if nargin==1
                 params=update_struct(params,init_params);
             end
@@ -60,7 +61,8 @@ classdef FORWARD_SOLVER_CONVERGENT_BORN < FORWARD_SOLVER
             h.expected_RI_size=[h.parameters.RI_xy_size(1) h.parameters.RI_xy_size(2) h.parameters.size(3)];
             
             %make the cropped green function (for forward and backward field)
-            h.cyclic_boundary_xy=( h.parameters.boundary_thickness(1)==0 && h.parameters.boundary_thickness(2)==0 && h.expected_RI_size(1)==h.parameters.size(1) && h.expected_RI_size(2)==h.parameters.size(2));
+            h.cyclic_boundary_xy=~h.parameters.force_remove_emitter_3D || ( h.parameters.boundary_thickness(1)==0 && h.parameters.boundary_thickness(2)==0 && h.expected_RI_size(1)==h.parameters.size(1) && h.expected_RI_size(2)==h.parameters.size(2));
+            
             if h.cyclic_boundary_xy
                 h.refocusing_util=exp(h.utility.refocusing_kernel.*h.utility.image_space.coor{3});
                 h.refocusing_util=gather(h.refocusing_util);
@@ -408,7 +410,6 @@ classdef FORWARD_SOLVER_CONVERGENT_BORN < FORWARD_SOLVER
                 if h.parameters.return_transmission || h.parameters.return_reflection
                     potential=RI2potential(h.RI(h.ROI(1):h.ROI(2), h.ROI(3):h.ROI(4), h.ROI(5):h.ROI(6),:,:),h.parameters.wavelength,h.parameters.RI_bg);
                     emitter_3D=Field.*potential.*h.utility_border.dV;
-
                     if ~h.cyclic_boundary_xy
                     emitter_3D=h.padd_RI2conv(emitter_3D);
                     end

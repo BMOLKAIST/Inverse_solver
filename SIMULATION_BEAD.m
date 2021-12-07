@@ -3,7 +3,8 @@ cd0 = matlab.desktop.editor.getActiveFilename;
 dash = cd0(strfind(cd0,'SIMULATION_BEAD.m')-1);
 cd0 = cd0(1:strfind(cd0,'SIMULATION_BEAD.m')-2);
 addpath(genpath(cd0));
-
+used_gpu_device=1;
+gpu_device=gpuDevice(used_gpu_device);
 %% set the simulation parameters
 MULTI_GPU=false; % Use Multiple GPU?
 
@@ -45,7 +46,7 @@ forward_params_backward.return_transmission=true;
 forward_params_backward.return_reflection=true;
 forward_params_backward.return_3D=true;
 forward_params_backward.boundary_thickness=[2 2 4]; % if xy is nonzero, acyclic convolution is applied.
-
+forward_params_backward.used_gpu = 0;
 %6 parameter for rytov solver
 
 
@@ -71,6 +72,7 @@ figure;orthosliceViewer(squeeze(angle(field_trans_scalar(:,:,:)./input_field_no_
 
 
 %% solve the backward multiple scattering problem
+
 backward_params.forward_solver=@(x) FORWARD_SOLVER_CONVERGENT_BORN(x);%forward_solver_backward;
 backward_params.forward_solver_parameters=forward_params_backward;
 init_backward_params=BACKWARD_SOLVER_RYTOV.get_default_parameters(params);
@@ -81,7 +83,7 @@ backward_params.init_solver=init_solver_backward;
 backward_params.vector_simulation = false; % true - dyadic ; false - scalar
 backward_params.verbose = true; % Draw figures
 backward_params.use_abbe_sine = true;
-backward_params.use_non_negativity = true;
+backward_params.use_non_negativity = false;
 backward_params.nmax = inf;
 backward_params.itter_max=200;
 backward_params.inner_itt=400;
