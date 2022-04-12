@@ -7,7 +7,6 @@ classdef FORWARD_SOLVER_CONVERGENT_BORN < FORWARD_SOLVER
         
         cyclic_boundary_xy;
         
-        
         Greenp;
         rads;
         eye_3;
@@ -51,6 +50,7 @@ classdef FORWARD_SOLVER_CONVERGENT_BORN < FORWARD_SOLVER
             % make the refocusing to volume field(other variable depend on the max RI and as such are created later).
             
             h@FORWARD_SOLVER(params);
+            
             if h.parameters.RI_xy_size(1)==0
                 h.parameters.RI_xy_size(1)=h.parameters.size(1);
             end
@@ -60,10 +60,12 @@ classdef FORWARD_SOLVER_CONVERGENT_BORN < FORWARD_SOLVER
             h.expected_RI_size=[h.parameters.RI_xy_size(1) h.parameters.RI_xy_size(2) h.parameters.size(3)];
             
             %make the cropped green function (for forward and backward field)
-            h.cyclic_boundary_xy=( h.parameters.boundary_thickness(1)==0 && h.parameters.boundary_thickness(2)==0 && h.expected_RI_size(1)==h.parameters.size(1) && h.expected_RI_size(2)==h.parameters.size(2));
+            h.cyclic_boundary_xy=(h.parameters.boundary_thickness(1)==0 && h.parameters.boundary_thickness(2)==0 && h.expected_RI_size(1)==h.parameters.size(1) && h.expected_RI_size(2)==h.parameters.size(2));
+            
             if h.cyclic_boundary_xy
                 h.refocusing_util=exp(h.utility.refocusing_kernel.*h.utility.image_space.coor{3});
                 h.refocusing_util=gather(h.refocusing_util);
+                h.refocusing_util= h.refocusing_util.*h.utility.NA_circle;
                 free_space_green=h.refocusing_util./(1i*4*pi);
                 free_space_green=free_space_green.*h.utility.NA_circle./(h.utility.k3+~h.utility.NA_circle);
                 free_space_green=free_space_green./(h.utility.image_space.res{1}.*h.utility.image_space.res{2});
@@ -83,20 +85,32 @@ classdef FORWARD_SOLVER_CONVERGENT_BORN < FORWARD_SOLVER
                 h.refocusing_util=circshift(h.refocusing_util,[-h.parameters.RI_center(1) -h.parameters.RI_center(2) 0]);
                 h.refocusing_util=fftshift(ifftn(ifftshift(h.refocusing_util)));
                 h.refocusing_util=fftshift(fft2(ifftshift(h.refocusing_util)));
-                h.refocusing_util=h.refocusing_util./size(h.refocusing_util,3); 
                 
-                %figure;orthosliceViewer(abs(h.refocusing_util));
+                %figure;orthosliceViewer(abs(h.refocusing_util)); error('pause');
+                
+                %h.refocusing_util=h.refocusing_util./size(h.refocusing_util,3); 
+                h.refocusing_util=h.refocusing_util.*(h.utility.image_space.res{1}.*h.utility.image_space.res{2});
+                
+                
+                
                 warning('off','all');
                 free_space_green=(truncated_green_plus(params_truncated_green));
-                %free_space_green=(truncated_green_plus_v1(params_truncated_green));
+                %free_space_green=(truncated_green_v2(params_truncated_green));
                 warning('on','all');
+                
+                
                 
                 free_space_green=free_space_green(...
                     1-min(0,h.parameters.RI_center(1)):end-max(0,h.parameters.RI_center(1)),...
                     1-min(0,h.parameters.RI_center(2)):end-max(0,h.parameters.RI_center(2)),:);
                 free_space_green=circshift(free_space_green,[-h.parameters.RI_center(1) -h.parameters.RI_center(2) 0]);
                 free_space_green=fftshift(ifftn(ifftshift(free_space_green)));
+                
+                
             end
+            
+            %figure; orthosliceViewer(gather(abs(fftshift(fft2(ifftshift(h.refocusing_util))))));error('pause');
+            
             h.kernel_trans=fftshift(fft2(ifftshift(conj(free_space_green))));
             h.kernel_ref=  fftshift(fft2(ifftshift((free_space_green))));
             
@@ -164,7 +178,14 @@ classdef FORWARD_SOLVER_CONVERGENT_BORN < FORWARD_SOLVER
             matt=matt(ROI_start(1):ROI_end(1),ROI_start(2):ROI_end(2),:,:);
         end
         function set_RI(h,RI)
-            if ~isequal(size(RI)',h.expected_RI_size(:))
+            if isstruct(RI)
+                RI=RI.scatt_pott;
+                if size(RI,4)<=1
+                    error('Structur form only allowed for tensor RI');
+                end
+            end
+            sz_RI=size(RI);
+            if ~isequal(sz_RI(1:3)',h.expected_RI_size(:))
                 error(['The refractiv index does not have the expected size : ' ...
                     num2str(h.expected_RI_size(1)) ' ' num2str(h.expected_RI_size(2)) ' ' num2str(h.expected_RI_size(3))]);
             end
@@ -176,7 +197,13 @@ classdef FORWARD_SOLVER_CONVERGENT_BORN < FORWARD_SOLVER
             h.init();%init the parameter for the forward model
         end
         function condition_RI(h)
-            h.eps_imag = max(abs(RI2potential(h.RI(:),h.parameters.wavelength,h.parameters.RI_bg))).*1.01;
+            if size(h.RI,4)>1
+                pott=RI2potential(h.RI,h.parameters.wavelength,h.parameters.RI_bg);
+                S = pagesvd(permute(pott(:),[4 5 1 2 3]));
+                h.eps_imag =  max(abs(S(:)),[],'all').*1.01;
+            else
+                h.eps_imag = max(abs(RI2potential(h.RI(:),h.parameters.wavelength,h.parameters.RI_bg)),[],'all').*1.01;
+            end
             step = abs(2*(2*pi*(h.parameters.RI_bg/h.parameters.wavelength))/h.eps_imag);
             h.pixel_step_size=round(step./(h.parameters.resolution));
             %add boundary to the RI
@@ -201,9 +228,17 @@ classdef FORWARD_SOLVER_CONVERGENT_BORN < FORWARD_SOLVER
                 h.RI = gpuArray(h.RI);
             end
             old_RI_size=size(h.RI);
+            
+            h.RI=RI2potential(h.RI,h.parameters.wavelength,h.parameters.RI_bg);
+            %{
             h.RI=padarray(h.RI,...
                 [h.boundary_thickness_pixel(1) h.boundary_thickness_pixel(2) h.boundary_thickness_pixel(3)],...
                 h.parameters.RI_bg);
+            %}
+            h.RI=padarray(h.RI,...
+                [h.boundary_thickness_pixel(1) h.boundary_thickness_pixel(2) h.boundary_thickness_pixel(3)],...
+                0);
+            h.RI=potential2RI(h.RI,h.parameters.wavelength,h.parameters.RI_bg);
             
             ROI = [...
                 h.boundary_thickness_pixel(1)+1 h.boundary_thickness_pixel(1)+old_RI_size(1)...
@@ -400,6 +435,7 @@ classdef FORWARD_SOLVER_CONVERGENT_BORN < FORWARD_SOLVER
             end
             
             for field_num=1:size(input_field,4)
+                %figure; imagesc(abs(fftshift(ifft2(ifftshift(input_field(:,:,:,field_num))))));error('pause');
                 Field=h.solve_raw(input_field(:,:,:,field_num));
                 %crop and remove near field (3D to 2D field)
                 if h.parameters.return_3D
@@ -407,8 +443,17 @@ classdef FORWARD_SOLVER_CONVERGENT_BORN < FORWARD_SOLVER
                 end
                 if h.parameters.return_transmission || h.parameters.return_reflection
                     potential=RI2potential(h.RI(h.ROI(1):h.ROI(2), h.ROI(3):h.ROI(4), h.ROI(5):h.ROI(6),:,:),h.parameters.wavelength,h.parameters.RI_bg);
-                    emitter_3D=Field.*potential.*h.utility_border.dV;
 
+                    if size(h.RI,4)==1
+                        emitter_3D=Field.*potential.*h.utility_border.dV;
+                    else
+                        emitter_3D = 0;
+                        for j1 = 1:3
+                            emitter_3D=emitter_3D+Field(:,:,:,j1).*potential(:,:,:,:,j1).*h.utility_border.dV;
+                        end
+                    end
+                    
+                    %emitter_3D=Field.*potential.*h.utility_border.dV;
                     if ~h.cyclic_boundary_xy
                     emitter_3D=h.padd_RI2conv(emitter_3D);
                     end
@@ -420,13 +465,28 @@ classdef FORWARD_SOLVER_CONVERGENT_BORN < FORWARD_SOLVER
                         h.kernel_trans=gpuArray(h.kernel_trans);
                     end
                     %h.kernel_trans
+                    %figure; orthosliceViewer(gather(abs(fftshift(ifft2(ifftshift((emitter_3D.*h.kernel_trans))))))); 
+                    %figure; orthosliceViewer(gather(angle(fftshift(ifft2(ifftshift((emitter_3D.*h.kernel_trans)))))));
+                    %error('pause');
+                    
                     field_trans = h.crop_conv2field(fftshift(ifft2(ifftshift(sum(emitter_3D.*h.kernel_trans,3)))));
                     field_trans=squeeze(field_trans);
+                    
+                    %figure; imagesc(abs(field_trans)); 
+                    %figure; imagesc(angle(field_trans));
+                    
 %                     if size(field_trans,3)>1
 %                         error('still not implemented');
 %                     end
                     field_trans=fftshift(fft2(ifftshift(field_trans)));
+                    %size(field_trans)
+                    %size(input_field(:,:,:,field_num))
                     field_trans=field_trans+input_field(:,:,:,field_num);
+                    
+                    %figure; imagesc(abs(fftshift(ifft2(ifftshift(field_trans)))));
+                    %figure; imagesc(angle(fftshift(fft2(ifftshift(input_field(:,:,:,field_num))))));
+                    %error('pause');
+                    
                     [field_trans] = h.transform_field_2D(field_trans);
                     field_trans=fftshift(ifft2(ifftshift(field_trans)));
                     fields_trans(:,:,:,field_num)=gather(squeeze(field_trans));
@@ -446,6 +506,7 @@ classdef FORWARD_SOLVER_CONVERGENT_BORN < FORWARD_SOLVER
                     [field_ref] = h.transform_field_2D_reflection(field_ref);
                     field_ref=fftshift(ifft2(ifftshift(field_ref)));
                     fields_ref(:,:,:,field_num)=gather(squeeze(field_ref));
+                    
                     h.kernel_ref=gather(h.kernel_ref);
                 end
             end
@@ -481,12 +542,24 @@ classdef FORWARD_SOLVER_CONVERGENT_BORN < FORWARD_SOLVER
             
             source = fftshift(ifft2(ifftshift(source)));
             source = h.padd_field2conv(source);
+            
+            %figure; imagesc(gather(abs(source)));
+            
             source = fftshift(fft2(ifftshift(source)));
             
             source = ((reshape(source, [size(source,1),size(source,2),1,size(source,3)])).*h.refocusing_util);
+            
             h.refocusing_util=gather(h.refocusing_util);
             source = fftshift(ifft2(ifftshift(source)));
             source = h.crop_conv2RI(source);
+            
+            %{
+            figure; orthosliceViewer(gather(abs(fftshift(ifft2(ifftshift(h.refocusing_util))))));
+            figure; orthosliceViewer(gather(abs(h.refocusing_util)));
+            figure; orthosliceViewer(gather(angle(h.refocusing_util)));
+            figure; orthosliceViewer(gather(angle(source)));
+            figure; orthosliceViewer(gather(abs(source)));error('pause');
+            %}
             
             incident_field = source;
             if size(h.RI,4)==1
@@ -495,8 +568,9 @@ classdef FORWARD_SOLVER_CONVERGENT_BORN < FORWARD_SOLVER
                 source00 = source;
                 source(:) = 0;
                 for j1 = 1:3
-                    source = source + (h.V(h.ROI(1):h.ROI(2),h.ROI(3):h.ROI(4),(h.ROI(5)):(h.ROI(6)),:,j1)+1i*h.eps_imag) .* source00(:,:,:,j1);
+                    source = source + (h.V(h.ROI(1):h.ROI(2),h.ROI(3):h.ROI(4),(h.ROI(5)):(h.ROI(6)),:,j1)) .* source00(:,:,:,j1);
                 end
+                source = source+1i*h.eps_imag*source00;
             end
             clear source00
             
@@ -549,11 +623,13 @@ classdef FORWARD_SOLVER_CONVERGENT_BORN < FORWARD_SOLVER
                     Field_n = Field_n + (h.V) .* PSI;
                 else
                     for j1 = 1:3
-                        Field_n = Field_n + (h.V(:,:,:,:,j1)) .* h.PSI(:,:,:,j1);
+                        Field_n = Field_n + (h.V(:,:,:,:,j1)) .* PSI(:,:,:,j1);
                     end
                 end
                 % Attenuation
                 Field_n=Field_n.*h.attenuation_mask;
+                
+                
                 % add the fields to the total field
                 if jj==2
                     clear source;
@@ -566,9 +642,11 @@ classdef FORWARD_SOLVER_CONVERGENT_BORN < FORWARD_SOLVER
                 end
             end
             
+            %size(Field)
             Field = ...
                 Field(h.ROI(1):h.ROI(2),h.ROI(3):h.ROI(4),h.ROI(5):h.ROI(6),:,:) + incident_field;
-            
+            %size(Field)
+            %size(incident_field)
             if h.parameters.verbose
                 set(gcf,'color','w'), imagesc((abs(squeeze(Field(:,floor(size(Field,2)/2)+1,:))'))),axis image, title(['Iteration: ' num2str(jj) ' / ' num2str(h.Bornmax)]), colorbar, axis off,drawnow
                 colormap hot
